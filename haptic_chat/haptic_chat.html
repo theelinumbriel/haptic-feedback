@@ -99,8 +99,7 @@
 </div>
 
 <script>
-// ---------- haptic language (shared with the AI) ----------
-const SHORT_MS = 150, LONG_MS = 600, DOUBLE_MS = 420;   // what the Arduino sketch plays
+const SHORT_MS = 150, LONG_MS = 600, DOUBLE_MS = 420;
 const PAUSE = { ".": 250, "_": 700 };
 const MORSE = { A: ".-", B: "-...", C: "-.-.", D: "-..", E: ".", F: "..-.", G: "--.", H: "....", I: "..", J: ".---",
   K: "-.-", L: ".-..", M: "--", N: "-.", O: "---", P: ".--.", Q: "--.-", R: ".-.", S: "...", T: "-", U: "..-",
@@ -108,14 +107,12 @@ const MORSE = { A: ".-", B: "-...", C: "-.-.", D: "-..", E: ".", F: "..-.", G: "
   5: ".....", 6: "-....", 7: "--...", 8: "---..", 9: "----." };
 
 function morseToPattern(word) {
-  // dot = s, dash = l, small gap between letters ("."), longer gap between words ("_")
   return word.toUpperCase().split(/\s+/).filter(Boolean).map(w =>
     w.split("").filter(ch => MORSE[ch]).map(ch => MORSE[ch].split("").map(c => c === "." ? "s" : "l").join(" ")).join(" . ")
   ).join(" _ ");
 }
 
 function parsePattern(p) {
-  // keep only the haptic alphabet: s l d . _
   return (p || "").toLowerCase().replace(/[^sld._]/g, "").split("");
 }
 
@@ -144,7 +141,6 @@ End every reply with exactly one <buzz>…</buzz> tag that carries the gist of y
 e.g. "Yes, 17 is prime. <buzz>s</buzz>". Keep text replies brief (1-3 sentences).`;
 }
 
-// ---------- serial (Web Serial API: Chrome / Arc / Edge) ----------
 let port = null, writer = null, lineBuf = "", waiters = [];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -166,7 +162,7 @@ async function readLoop(reader) {
       let i;
       while ((i = lineBuf.indexOf("\n")) >= 0) { onLine(lineBuf.slice(0, i)); lineBuf = lineBuf.slice(i + 1); }
     }
-  } catch (e) { /* port closed */ }
+  } catch (e) {}
   setStatus(false, "Buzzer disconnected");
 }
 
@@ -187,7 +183,6 @@ async function sendCmd(c) {
 
 let playing = Promise.resolve();
 function play(symbols) {
-  // queue so overlapping requests don't interleave
   playing = playing.then(async () => {
     for (const s of symbols) {
       if (s in PAUSE) await sleep(PAUSE[s]);
@@ -225,7 +220,6 @@ async function connect() {
   }
 }
 
-// ---------- AI ----------
 const history = [];
 
 async function askModel(userText) {
@@ -279,7 +273,6 @@ function extract(text, mode) {
   return { clean: text.replace(/<buzz>[\s\S]*?<\/buzz>|<morse>[\s\S]*?<\/morse>/gi, "").trim(), symbols: parsePattern(pattern), label };
 }
 
-// ---------- UI ----------
 const log = document.getElementById("log");
 function addMsg(kind, text, felt) {
   const div = document.createElement("div");
@@ -319,7 +312,6 @@ async function send() {
   } finally { btn.disabled = false; box.focus(); }
 }
 
-// settings: remember choices (never the key unless asked)
 function store(k, v) { try { localStorage.setItem("hc_" + k, v); } catch (e) {} }
 function load(k) { try { return localStorage.getItem("hc_" + k); } catch (e) { return null; } }
 function syncProvider() {

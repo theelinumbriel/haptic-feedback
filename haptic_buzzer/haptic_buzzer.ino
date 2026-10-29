@@ -1,36 +1,29 @@
-// haptic_buzzer.ino — piezo buzzes + a 7-segment display, driven from your computer.
+// haptic_buzzer.ino - piezo buzzer + 7-segment display driven over USB serial.
 //
-// Piezo: pin 9 -> red wire, GND -> black wire.
-// Display: each segment -> 220 ohm resistor -> its own pin (see PINS below).
-//          Display middle pin (COM) -> GND.
+// Piezo:   pin 9 -> red, GND -> black.
+// Display: each segment -> 220 ohm -> its own pin (see PINS); COM -> GND.
 //
-// AT POWER-UP all segments flash once briefly ("I'm alive").
-// SEGMENT TEST (command T, or: python3 buzz.py segtest): one tiny tick, then one
-// segment lights for 1.5 s, for each of the 8 pins in the order of PINS.
-//
-// Commands over USB serial (9600 baud). The board replies "OK <c>" to each.
-//   s short buzz   l long buzz   d double tap   p ping (no buzz)
-//   0-9  show that digit
-//   t    "thinking" spinner (runs until the next display command)
-//   cN   confidence meter: N = 0..8 segments lit, e.g. c5
-//   mXX  raw glyph: XX = two hex digits, bit0=a .. bit6=g, bit7=dot, e.g. m49
-//   x    clear the display
-//   T    run the segment test again
-// The dot lights whenever the piezo buzzes, so buzzes are also visible.
+// Serial (9600 baud), replies "OK <c>":
+//   s|l|d|p  short/long/double/ping
+//   0-9      digit
+//   t        spinner
+//   cN       meter (N = 0..8)
+//   mXX      raw glyph, hex bits a..g.dot
+//   x        clear
+//   T        run segment test
+// The dot lights while the piezo buzzes.
 
-const bool COMMON_ANODE = false;   // flip to true if nothing lights (and COM goes to 5V)
+const bool COMMON_ANODE = false;
 const bool USE_PIEZO = true;
 const int PIEZO_HZ = 180;
 const int MOTOR_PIN = 9;
 const int SHORT_MS = 150;
 const int LONG_MS = 600;
 
-// Segment order:          a  b  c  d  e  f  g  dot
-const int PINS[8]       = {2, 3, 4, 5, 6, 7, 8, 10};
-
+const int PINS[8] = {2, 3, 4, 5, 6, 7, 8, 10};
 const byte DIGITS[10] = {0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F};
-const byte SPIN[6] = {0x01, 0x02, 0x04, 0x08, 0x10, 0x20};   // a b c d e f around the edge
-const byte METER[9] = {0x00, 0x08, 0x0C, 0x0E, 0x0F, 0x2F, 0x3F, 0x7F, 0xFF};  // fills up from the bottom
+const byte SPIN[6] = {0x01, 0x02, 0x04, 0x08, 0x10, 0x20};
+const byte METER[9] = {0x00, 0x08, 0x0C, 0x0E, 0x0F, 0x2F, 0x3F, 0x7F, 0xFF};
 
 byte shown = 0;
 bool spinning = false;
@@ -46,7 +39,7 @@ void show(byte mask) {
 
 void buzz(int ms) {
   digitalWrite(LED_BUILTIN, HIGH);
-  writeSeg(7, true);                       // dot on while buzzing
+  writeSeg(7, true);
   if (USE_PIEZO) { tone(MOTOR_PIN, PIEZO_HZ); delay(ms); noTone(MOTOR_PIN); }
   else { digitalWrite(MOTOR_PIN, HIGH); delay(ms); digitalWrite(MOTOR_PIN, LOW); }
   writeSeg(7, shown & 0x80);
@@ -57,7 +50,7 @@ void selfTest() {
   spinning = false;
   for (int i = 0; i < 8; i++) {
     show(0);
-    tone(MOTOR_PIN, PIEZO_HZ); delay(40); noTone(MOTOR_PIN);   // tick = "next one"
+    tone(MOTOR_PIN, PIEZO_HZ); delay(40); noTone(MOTOR_PIN);
     delay(400);
     writeSeg(i, true);
     Serial.print("TEST pin "); Serial.println(PINS[i]);
@@ -66,7 +59,7 @@ void selfTest() {
   show(0xFF); delay(1000); show(0);
 }
 
-int readNext() {                            // second character of a 2-3 char command
+int readNext() {
   unsigned long t = millis();
   while (!Serial.available()) if (millis() - t > 300) return -1;
   return Serial.read();
@@ -115,6 +108,6 @@ void loop() {
     if (h < 0 || l < 0) return;
     spinning = false; show((h << 4) | l);
   }
-  else return;                            // ignore anything else (newlines etc.)
+  else return;
   Serial.print("OK "); Serial.println(c);
 }
