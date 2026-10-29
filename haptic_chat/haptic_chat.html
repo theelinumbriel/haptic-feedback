@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Haptic Chat</title>
+<style>
+  :root {
+    --bg: #f5f4f0; --panel: #ffffff; --ink: #1f2328; --muted: #6a6f76; --line: #e2e0da;
+    --accent: #2457d6; --you: #e9effc; --ok: #2e8b47; --bad: #b4441b; --buzz: #7a3cc7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #131417; --panel: #1b1d21; --ink: #e7e7ea; --muted: #9a9fa6; --line: #2b2e34;
+            --accent: #6b93ff; --you: #1d2842; --ok: #4cc06d; --bad: #f08a5d; --buzz: #b28af0; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; height: 100vh; }
+  header { display: flex; align-items: center; gap: 12px; padding: 4px 0 12px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: 18px; margin: 0; flex: 1; letter-spacing: -0.01em; }
+  .status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); }
+  .dot.on { background: var(--ok); }
+  button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+           padding: 7px 12px; border-radius: 8px; cursor: pointer; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  #log { flex: 1; overflow-y: auto; padding: 16px 0; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 85%; padding: 10px 13px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); white-space: pre-wrap; }
+  .msg.you { align-self: flex-end; background: var(--you); border-color: transparent; }
+  .msg.sys { align-self: center; font-size: 13px; color: var(--muted); background: transparent; border: none; text-align: center; }
+  .msg .felt { display: block; margin-top: 6px; font-size: 12.5px; color: var(--buzz); font-family: ui-monospace, Menlo, monospace; }
+  .msg.hidden .text { filter: blur(6px); cursor: pointer; user-select: none; }
+  .row { display: flex; gap: 8px; }
+  #input { flex: 1; font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); resize: none; }
+  .quick { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 4px; font-size: 13px; color: var(--muted); align-items: center; }
+  .quick button { padding: 4px 10px; font-size: 13px; }
+  #mode { font: inherit; font-size: 13px; padding: 4px 6px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+  details { border-top: 1px solid var(--line); padding: 10px 0 0; margin-top: 8px; font-size: 14px; }
+  summary { cursor: pointer; color: var(--muted); }
+  .grid { display: grid; grid-template-columns: 150px 1fr; gap: 8px 12px; align-items: center; margin-top: 10px; }
+  .grid input, .grid select { font: inherit; padding: 6px 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); width: 100%; }
+  .hint { font-size: 12.5px; color: var(--muted); grid-column: 2; margin-top: -4px; }
+  @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } .hint { grid-column: 1; } .msg { max-width: 100%; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Haptic Chat</h1>
+    <span class="status"><span class="dot" id="dot"></span><span id="statusText">Buzzer not connected</span></span>
+    <button class="primary" id="connectBtn">Connect buzzer</button>
+  </header>
+
+  <div id="log"></div>
+
+  <div class="quick">
+    <span>Mode:</span>
+    <select id="mode">
+      <option value="both">Text + buzz</option>
+      <option value="felt">Buzz only (text hidden until you click it)</option>
+      <option value="morse">Morse (one short word, buzzed letter by letter)</option>
+    </select>
+    <span style="flex:1"></span>
+    <span>Test:</span>
+    <button data-pat="s">short</button><button data-pat="l">long</button><button data-pat="d">double</button>
+    <button data-morse="SOS">SOS</button>
+  </div>
+
+  <div class="row">
+    <textarea id="input" rows="2" placeholder="Ask something. Try: “Buzz yes or no: is 17 prime?”  (Enter to send, Shift+Enter for a new line)"></textarea>
+    <button class="primary" id="sendBtn">Send</button>
+  </div>
+
+  <details id="settings">
+    <summary>Settings: AI model</summary>
+    <div class="grid">
+      <label for="provider">Model provider</label>
+      <select id="provider">
+        <option value="anthropic">Claude (Anthropic API key)</option>
+        <option value="lmstudio">LM Studio (local, free, no key)</option>
+      </select>
+
+      <label for="apiKey" class="anth">Anthropic API key</label>
+      <input id="apiKey" class="anth" type="password" placeholder="sk-ant-…" autocomplete="off">
+      <span class="hint anth">From console.anthropic.com → API keys. Sent only to Anthropic.
+        <label><input type="checkbox" id="rememberKey" style="width:auto"> remember on this computer</label></span>
+
+      <label for="model">Model name</label>
+      <input id="model" placeholder="claude-haiku-5-5">
+      <span class="hint">Claude: claude-haiku-5-5 (fast) or claude-sonnet-5-5. LM Studio: the model id shown in its server tab.</span>
+
+      <label for="lmUrl" class="lm">LM Studio address</label>
+      <input id="lmUrl" class="lm" value="http://localhost:1234">
+      <span class="hint lm">In LM Studio: load a model, open the Developer/server tab, turn on “Enable CORS”, then Start.</span>
+    </div>
+  </details>
+</div>
+
+<script>
+// ---------- haptic language (shared with the AI) ----------
+const SHORT_MS = 150, LONG_MS = 600, DOUBLE_MS = 420;   // what the Arduino sketch plays
+const PAUSE = { ".": 250, "_": 700 };
+const MORSE = { A: ".-", B: "-...", C: "-.-.", D: "-..", E: ".", F: "..-.", G: "--.", H: "....", I: "..", J: ".---",
+  K: "-.-", L: ".-..", M: "--", N: "-.", O: "---", P: ".--.", Q: "--.-", R: ".-.", S: "...", T: "-", U: "..-",
+  V: "...-", W: ".--", X: "-..-", Y: "-.--", Z: "--..", 0: "-----", 1: ".----", 2: "..---", 3: "...--", 4: "....-",
+  5: ".....", 6: "-....", 7: "--...", 8: "---..", 9: "----." };
+
+function morseToPattern(word) {
+  // dot = s, dash = l, small gap between letters ("."), longer gap between words ("_")
+  return word.toUpperCase().split(/\s+/).filter(Boolean).map(w =>
+    w.split("").filter(ch => MORSE[ch]).map(ch => MORSE[ch].split("").map(c => c === "." ? "s" : "l").join(" ")).join(" . ")
+  ).join(" _ ");
+}
+
+function parsePattern(p) {
+  // keep only the haptic alphabet: s l d . _
+  return (p || "").toLowerCase().replace(/[^sld._]/g, "").split("");
+}
+
+function systemPrompt(mode) {
+  const base = `You are talking with a person who holds a small haptic buzzer connected to their computer.
+You can make it buzz. Haptic alphabet:
+  s = short buzz (${SHORT_MS} ms)   l = long buzz (${LONG_MS} ms)   d = double tap
+  . = short pause   _ = long pause
+Conventions you share with the person (use them consistently):
+  yes = s        no = l        not sure / it depends = d
+  attention / important = s s s        done / finished = l s
+  a number N from 1 to 9 = N short buzzes separated by spaces
+Keep patterns short: at most about 12 symbols.`;
+  if (mode === "morse") {
+    return base + `
+MORSE MODE: put ONE short word (max 6 letters, A-Z/0-9) inside <morse>…</morse>; the computer buzzes it in Morse code.
+Also write a one-line text reply. Example: "It's a prime. <morse>YES</morse>"`;
+  }
+  if (mode === "felt") {
+    return base + `
+BUZZ-ONLY MODE: the person can't see your text unless they click it, so the buzz must carry the answer on its own.
+End every reply with exactly one <buzz>…</buzz> tag, e.g. "Yes, 17 is prime. <buzz>s</buzz>". Keep text to one sentence.`;
+  }
+  return base + `
+End every reply with exactly one <buzz>…</buzz> tag that carries the gist of your answer,
+e.g. "Yes, 17 is prime. <buzz>s</buzz>". Keep text replies brief (1-3 sentences).`;
+}
+
+// ---------- serial (Web Serial API: Chrome / Arc / Edge) ----------
+let port = null, writer = null, lineBuf = "", waiters = [];
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function onLine(line) {
+  line = line.trim();
+  if (!line) return;
+  const w = waiters.shift();
+  if (w && line.startsWith("OK")) w(true);
+  else if (w) waiters.unshift(w);
+}
+
+async function readLoop(reader) {
+  const dec = new TextDecoder();
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      lineBuf += dec.decode(value);
+      let i;
+      while ((i = lineBuf.indexOf("\n")) >= 0) { onLine(lineBuf.slice(0, i)); lineBuf = lineBuf.slice(i + 1); }
+    }
+  } catch (e) { /* port closed */ }
+  setStatus(false, "Buzzer disconnected");
+}
+
+function waitOk(ms) {
+  return new Promise(res => {
+    const t = setTimeout(() => { waiters = waiters.filter(f => f !== done); res(false); }, ms);
+    const done = ok => { clearTimeout(t); res(ok); };
+    waiters.push(done);
+  });
+}
+
+async function sendCmd(c) {
+  if (!writer) return false;
+  const ok = waitOk(c === "l" ? 2000 : 1500);
+  await writer.write(new TextEncoder().encode(c));
+  return ok;
+}
+
+let playing = Promise.resolve();
+function play(symbols) {
+  // queue so overlapping requests don't interleave
+  playing = playing.then(async () => {
+    for (const s of symbols) {
+      if (s in PAUSE) await sleep(PAUSE[s]);
+      else { await sendCmd(s); await sleep(90); }
+    }
+  });
+  return playing;
+}
+
+function setStatus(on, text) {
+  document.getElementById("dot").classList.toggle("on", on);
+  document.getElementById("statusText").textContent = text;
+  document.getElementById("connectBtn").textContent = on ? "Reconnect" : "Connect buzzer";
+}
+
+async function connect() {
+  if (!("serial" in navigator)) {
+    addSys("This browser can't talk to USB devices. Open this page in Google Chrome or Arc (not Safari).");
+    return;
+  }
+  try {
+    if (port) { try { await port.close(); } catch (e) {} }
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 9600 });
+    writer = port.writable.getWriter();
+    readLoop(port.readable.getReader());
+    setStatus(false, "Connecting… (the Uno restarts, 2 s)");
+    await sleep(2200);
+    const ok = await sendCmd("p");
+    setStatus(ok, ok ? "Buzzer connected" : "Connected, but no reply");
+    if (ok) play(["s", "."]);
+    else addSys("The port opened but the buzzer didn't answer. Is the haptic_buzzer sketch uploaded, and is the Arduino IDE Serial Monitor closed?");
+  } catch (e) {
+    if (e.name !== "NotFoundError") addSys("Couldn't connect: " + e.message + ". Close the Arduino IDE Serial Monitor and any other program using the board, then try again.");
+  }
+}
+
+// ---------- AI ----------
+const history = [];
+
+async function askModel(userText) {
+  const mode = document.getElementById("mode").value;
+  const provider = document.getElementById("provider").value;
+  const model = document.getElementById("model").value.trim();
+  history.push({ role: "user", content: userText });
+  const msgs = history.slice(-20);
+
+  if (provider === "anthropic") {
+    const key = document.getElementById("apiKey").value.trim();
+    if (!key) throw new Error("Add your Anthropic API key in Settings (bottom of the page).");
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({ model: model || "claude-haiku-5-5", max_tokens: 400, system: systemPrompt(mode), messages: msgs }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.error?.message || ("HTTP " + r.status));
+    const text = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("");
+    history.push({ role: "assistant", content: text });
+    return text;
+  } else {
+    const base = document.getElementById("lmUrl").value.replace(/\/$/, "");
+    const r = await fetch(base + "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: model || "local-model", temperature: 0.7,
+        messages: [{ role: "system", content: systemPrompt(mode) }, ...msgs] }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.error?.message || data?.error || ("HTTP " + r.status));
+    const text = data.choices?.[0]?.message?.content || "";
+    history.push({ role: "assistant", content: text });
+    return text;
+  }
+}
+
+function extract(text, mode) {
+  let pattern = "", label = "";
+  const m = text.match(/<morse>([\s\S]*?)<\/morse>/i);
+  const b = text.match(/<buzz>([\s\S]*?)<\/buzz>/i);
+  if (mode === "morse" && m) { label = "Morse " + m[1].trim().toUpperCase(); pattern = morseToPattern(m[1]); }
+  else if (b) { pattern = b[1]; label = b[1].trim(); }
+  else if (m) { label = "Morse " + m[1].trim().toUpperCase(); pattern = morseToPattern(m[1]); }
+  return { clean: text.replace(/<buzz>[\s\S]*?<\/buzz>|<morse>[\s\S]*?<\/morse>/gi, "").trim(), symbols: parsePattern(pattern), label };
+}
+
+// ---------- UI ----------
+const log = document.getElementById("log");
+function addMsg(kind, text, felt) {
+  const div = document.createElement("div");
+  div.className = "msg " + kind;
+  const t = document.createElement("span");
+  t.className = "text";
+  t.textContent = text;
+  div.appendChild(t);
+  if (felt) { const f = document.createElement("span"); f.className = "felt"; f.textContent = "felt: " + felt; div.appendChild(f); }
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+  return div;
+}
+const addSys = t => addMsg("sys", t);
+
+async function send() {
+  const box = document.getElementById("input");
+  const text = box.value.trim();
+  if (!text) return;
+  box.value = "";
+  addMsg("you", text);
+  const btn = document.getElementById("sendBtn");
+  btn.disabled = true;
+  const thinking = addSys("thinking…");
+  try {
+    const mode = document.getElementById("mode").value;
+    const reply = await askModel(text);
+    thinking.remove();
+    const { clean, symbols, label } = extract(reply, mode);
+    const div = addMsg("ai", clean || "(no text)", label ? label + (writer ? "" : "  (buzzer not connected)") : "");
+    if (mode === "felt") { div.classList.add("hidden"); div.querySelector(".text").title = "Click to reveal"; div.querySelector(".text").onclick = () => div.classList.remove("hidden"); }
+    if (symbols.length && writer) play(symbols);
+  } catch (e) {
+    thinking.remove();
+    history.pop();
+    addSys("Error: " + e.message + (e.message.includes("Failed to fetch") ? "  (For LM Studio: is the server started with CORS enabled?)" : ""));
+  } finally { btn.disabled = false; box.focus(); }
+}
+
+// settings: remember choices (never the key unless asked)
+function store(k, v) { try { localStorage.setItem("hc_" + k, v); } catch (e) {} }
+function load(k) { try { return localStorage.getItem("hc_" + k); } catch (e) { return null; } }
+function syncProvider() {
+  const lm = document.getElementById("provider").value === "lmstudio";
+  document.querySelectorAll(".anth").forEach(e => e.style.display = lm ? "none" : "");
+  document.querySelectorAll(".lm").forEach(e => e.style.display = lm ? "" : "none");
+}
+for (const id of ["provider", "model", "lmUrl", "mode"]) {
+  const el = document.getElementById(id), v = load(id);
+  if (v !== null) el.value = v;
+  el.addEventListener("change", () => { store(id, el.value); syncProvider(); });
+}
+if (load("key")) { document.getElementById("apiKey").value = load("key"); document.getElementById("rememberKey").checked = true; }
+document.getElementById("apiKey").addEventListener("change", e => { if (document.getElementById("rememberKey").checked) store("key", e.target.value); });
+document.getElementById("rememberKey").addEventListener("change", e => {
+  if (e.target.checked) store("key", document.getElementById("apiKey").value);
+  else { try { localStorage.removeItem("hc_key"); } catch (_) {} }
+});
+syncProvider();
+if (!document.getElementById("apiKey").value && document.getElementById("provider").value === "anthropic") document.getElementById("settings").open = true;
+
+document.getElementById("connectBtn").onclick = connect;
+document.getElementById("sendBtn").onclick = send;
+document.getElementById("input").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
+document.querySelectorAll("[data-pat]").forEach(b => b.onclick = () => play(parsePattern(b.dataset.pat)));
+document.querySelectorAll("[data-morse]").forEach(b => b.onclick = () => play(parsePattern(morseToPattern(b.dataset.morse))));
+
+addSys("1. Click “Connect buzzer” and choose the usbmodem port.   2. Add a model in Settings.   3. Ask anything. Yes = short buzz, no = long buzz.");
+</script>
+</body>
+</html>
